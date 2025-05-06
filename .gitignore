@@ -25,4 +25,5 @@ dist-ssr
 .env
 src/config/firebaseconfig.js
 src/serviceAccountKey.json
+serviceAccountKey.json
 
