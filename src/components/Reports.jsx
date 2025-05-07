@@ -228,9 +228,6 @@ const Reports = () => {
             <Button variant="outlined" onClick={() => setIsAtlTechWeek(!isAtlTechWeek)}>
               Switch to {isAtlTechWeek ? "Render" : "ATL Tech Week"}
             </Button>
-            <Button variant="outlined" onClick={logout}>
-              Log Out
-            </Button>
           </Stack>
 
           <Tabs

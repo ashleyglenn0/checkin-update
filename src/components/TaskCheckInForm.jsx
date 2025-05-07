@@ -74,16 +74,15 @@ const TaskCheckInForm = () => {
   const db = getFirestore();
 
   useEffect(() => {
-    if (!user) {
-      navigate("/");
-      return;
-    }
+    const qrTask = searchParams.get("task");
+    const qrEvent = searchParams.get("event");
+    const qrLead = searchParams.get("teamLead");
 
-    setTask(searchParams.get("task") || "");
-    setTeamLead(searchParams.get("teamLead") || "");
-    setEvent(user?.event || searchParams.get("event") || "");
+    setTask(qrTask || "");
+    setEvent(user?.event || qrEvent || "");
+    setTeamLead(qrLead || "");
     setShowBackButton(true);
-  }, [searchParams, user, navigate]);
+  }, [searchParams, user]);
 
   const verifyAdminCheckIn = async (first, last, minWaitMinutes = 1) => {
     const startOfDay = Timestamp.fromDate(
@@ -120,7 +119,7 @@ const TaskCheckInForm = () => {
         allowed: false,
         message: `⚠️ Please wait ${Math.ceil(
           minWaitMinutes - timeDifferenceMinutes
-        )} more minute(s) before checking in with the team lead while the system updates.`,
+        )} more minute(s) before checking in with the team lead.`,
       };
     }
 
@@ -143,7 +142,7 @@ const TaskCheckInForm = () => {
         return;
       }
 
-      const timestamp = new Date().toISOString();
+      const timestamp = Timestamp.now(); ;
       const taskCheckinId = `${firstName}_${lastName}_${timestamp}`;
 
       await setDoc(doc(db, "task_checkins", taskCheckinId), {
@@ -191,11 +190,18 @@ const TaskCheckInForm = () => {
       <PageLayout centered>
         <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
           <img
-            src={isAtlTechWeek ? ATWLogo : PinkPeachIcon}
+            src={event === "ATL Tech Week" ? ATWLogo : PinkPeachIcon}
             alt="Event Logo"
             style={{ height: "60px", width: "auto" }}
           />
         </Box>
+
+        {!user && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            🔓 Demo Mode: You're not logged in, but check-in is still available.
+          </Alert>
+        )}
+
         <Typography variant="h5" gutterBottom>
           Task Check-In Form
         </Typography>
@@ -278,9 +284,9 @@ const TaskCheckInForm = () => {
                     firstName
                   )}&lastName=${encodeURIComponent(
                     lastName
-                  )}&task=${encodeURIComponent(
-                    task
-                  )}&event=${encodeURIComponent(event)}`
+                  )}&task=${encodeURIComponent(task)}&event=${encodeURIComponent(
+                    event
+                  )}`
                 );
               } else {
                 alert("⚠️ No team lead information found.");

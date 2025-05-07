@@ -9,8 +9,8 @@ import {
   doc,
   updateDoc,
   setDoc,
+  Timestamp,
 } from "firebase/firestore";
-import { Timestamp } from "firebase/firestore";
 import {
   Box,
   Typography,
@@ -59,16 +59,9 @@ const atlTheme = createTheme({
       default: "#f5f5f5",
       paper: "#ffffff",
     },
-    primary: {
-      main: "#ffb89e",
-    },
-    text: {
-      primary: "#4f2b91",
-      secondary: "#2b2b36",
-    },
-    secondary: {
-      main: "#68dcaf",
-    },
+    primary: { main: "#ffb89e" },
+    text: { primary: "#4f2b91", secondary: "#2b2b36" },
+    secondary: { main: "#68dcaf" },
   },
 });
 
@@ -79,9 +72,7 @@ const TaskDashboard = () => {
 
   const initialEvent =
     user?.event ||
-    (localStorage.getItem("isAtlTechWeek") === "true"
-      ? "ATL Tech Week"
-      : "Render");
+    (localStorage.getItem("isAtlTechWeek") === "true" ? "ATL Tech Week" : "Render");
 
   const [taskCheckIns, setTaskCheckIns] = useState({});
   const [selectedEvent, setSelectedEvent] = useState(initialEvent);
@@ -124,40 +115,61 @@ const TaskDashboard = () => {
   useEffect(() => {
     if (!selectedEvent || !selectedDate) return;
 
-    const q = query(
-      collection(db, "task_checkins"),
+    const baseConditions = [
       where("event", "==", selectedEvent),
       where("checkinTime", ">=", Timestamp.fromDate(startOfDay)),
-      where("checkinTime", "<=", Timestamp.fromDate(endOfDay))
+      where("checkinTime", "<=", Timestamp.fromDate(endOfDay)),
+    ];
+
+    const volunteerQuery = query(
+      collection(db, "task_checkins"),
+      ...baseConditions,
+      where("status", "==", "Check In for Task")
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = {};
-      snapshot.forEach((doc) => {
-        const checkIn = doc.data();
-        if (!data[checkIn.task]) {
-          data[checkIn.task] = [];
-        }
-        data[checkIn.task].push({ id: doc.id, ...checkIn });
-      });
-      setTaskCheckIns(data);
-    });
+    const teamLeadQuery = query(
+      collection(db, "task_checkins"),
+      ...baseConditions,
+      where("status", "==", "Checked In")
+    );
 
-    return () => unsubscribe();
+    const combinedData = {};
+
+    const mergeIntoCombined = (snapshot) => {
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        if (!combinedData[data.task]) combinedData[data.task] = [];
+        combinedData[data.task].push({ id: doc.id, ...data });
+      });
+
+      console.log("✅ Merged tasks:", Object.keys(combinedData));
+
+      setTaskCheckIns((prev) => {
+        const merged = { ...prev };
+        Object.entries(combinedData).forEach(([task, records]) => {
+          merged[task] = [...(merged[task] || []), ...records];
+        });
+        return merged;
+      });
+    };
+
+    const unsubscribeVolunteers = onSnapshot(volunteerQuery, mergeIntoCombined);
+    const unsubscribeTeamLeads = onSnapshot(teamLeadQuery, mergeIntoCombined);
+
+    return () => {
+      unsubscribeVolunteers();
+      unsubscribeTeamLeads();
+    };
   }, [selectedEvent, selectedDate, db]);
 
   const theme = selectedEvent === "ATL Tech Week" ? atlTheme : renderTheme;
 
   const calculateTimeSpent = (checkinTime) => {
     if (!checkinTime) return "-";
-
-    const checkinDate = checkinTime.toDate?.() ?? new Date(checkinTime); // handle Timestamp or Date
-
+    const checkinDate = checkinTime.toDate?.() ?? new Date(checkinTime);
     if (isNaN(checkinDate)) return "-";
-
     const now = new Date();
-    const diffMs = now - checkinDate;
-    return Math.max(Math.floor(diffMs / 60000), 0);
+    return Math.max(Math.floor((now - checkinDate) / 60000), 0);
   };
 
   const handleOpenReassignDialog = (volunteer) => {
@@ -179,7 +191,7 @@ const TaskDashboard = () => {
       first_name: selectedVolunteer.first_name,
       last_name: selectedVolunteer.last_name,
       task: newTask,
-      checkinTime: Timestamp.now(), // use Firebase Timestamp for consistency
+      checkinTime: Timestamp.now(),
       checkoutTime: null,
       teamLead: selectedVolunteer.teamLead,
       event: selectedEvent,
@@ -189,9 +201,6 @@ const TaskDashboard = () => {
     setSelectedVolunteer(null);
     setNewTask("");
   };
-
-  const allTasks = tasks;
-  console.log("taskCheckIns:", taskCheckIns);
 
   return (
     <ThemeProvider theme={theme}>
@@ -225,7 +234,7 @@ const TaskDashboard = () => {
           />
         </Box>
 
-        {allTasks.map((task) => (
+        {tasks.map((task) => (
           <Accordion key={task} defaultExpanded>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="h6">{task}</Typography>
@@ -251,8 +260,7 @@ const TaskDashboard = () => {
                           </TableCell>
                           <TableCell>{volunteer.teamLead}</TableCell>
                           <TableCell>
-                            {(
-                              volunteer.checkinTime?.toDate?.() ??
+                            {(volunteer.checkinTime?.toDate?.() ??
                               new Date(volunteer.checkinTime)
                             ).toLocaleTimeString([], {
                               hour: "2-digit",
@@ -266,9 +274,7 @@ const TaskDashboard = () => {
                             <Button
                               variant="outlined"
                               size="small"
-                              onClick={() =>
-                                handleOpenReassignDialog(volunteer)
-                              }
+                              onClick={() => handleOpenReassignDialog(volunteer)}
                             >
                               Reassign
                             </Button>
@@ -279,9 +285,7 @@ const TaskDashboard = () => {
                   </Table>
                 </TableContainer>
               ) : (
-                <Typography variant="body2">
-                  No check-ins for this task.
-                </Typography>
+                <Typography variant="body2">No check-ins for this task.</Typography>
               )}
             </AccordionDetails>
           </Accordion>
@@ -315,8 +319,7 @@ const TaskDashboard = () => {
           <DialogTitle>Reassign Volunteer</DialogTitle>
           <DialogContent>
             <Typography>
-              Name: {selectedVolunteer?.first_name}{" "}
-              {selectedVolunteer?.last_name}
+              Name: {selectedVolunteer?.first_name} {selectedVolunteer?.last_name}
             </Typography>
             <Typography>Current Task: {selectedVolunteer?.task}</Typography>
             <Select
@@ -334,11 +337,7 @@ const TaskDashboard = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setReassignDialogOpen(false)}>Cancel</Button>
-            <Button
-              variant="contained"
-              onClick={handleReassign}
-              disabled={!newTask}
-            >
+            <Button variant="contained" onClick={handleReassign} disabled={!newTask}>
               Confirm
             </Button>
           </DialogActions>

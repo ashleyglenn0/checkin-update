@@ -1,3 +1,4 @@
+// [imports remain unchanged]
 import React, { useState, useEffect } from "react";
 import {
   Box,
@@ -42,17 +43,17 @@ const atlTheme = createTheme({
     mode: "light",
     background: {
       default: "#f5f5f5",
-      paper: "#ffffff"
+      paper: "#ffffff",
     },
     primary: {
-      main: "#ffb89e"
+      main: "#ffb89e",
     },
     text: {
       primary: "#4f2b91",
-      secondary: "#2b2b36"
+      secondary: "#2b2b36",
     },
     secondary: {
-      main: "#68dcaf"
+      main: "#68dcaf",
     },
   },
 });
@@ -71,16 +72,11 @@ const CheckInForm = () => {
   const [qrLink, setQrLink] = useState("");
   const [showQRLink, setShowQRLink] = useState(false);
   const [countdown, setCountdown] = useState(30);
-  const [feedback, setFeedback] = useState({
-    message: "",
-    type: "",
-    show: false,
-  });
+  const [feedback, setFeedback] = useState({ message: "", type: "", show: false });
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
 
   const staffFromQR = searchParams.get("staff") || null;
   const isFromQR = !!staffFromQR;
-
   const { user, login } = useAuth();
 
   const showAlert = (message, type = "success") => {
@@ -93,26 +89,20 @@ const CheckInForm = () => {
       showAlert("⚠️ Please enter both first and last name.", "warning");
       return;
     }
-  
+
     if (statusType !== "Checked Out" && !agreedToPolicy) {
-      showAlert(
-        "⚠️ You must agree to the privacy policy before checking in.",
-        "warning"
-      );
+      showAlert("⚠️ You must agree to the privacy policy before checking in.", "warning");
       return;
     }
-  
+
     if (user?.role === "admin" && !staffMember) {
-      showAlert(
-        "⚠️ Please select the staff member checking in the volunteer.",
-        "warning"
-      );
+      showAlert("⚠️ Please select the staff member checking in the volunteer.", "warning");
       return;
     }
-  
+
     const activeEvent = isAtlTechWeek ? "ATL Tech Week" : "Render";
     const timestamp = Timestamp.now();
-  
+
     try {
       const userQuery = query(
         collection(db, "users"),
@@ -120,84 +110,93 @@ const CheckInForm = () => {
         where("last_name", "==", lastName)
       );
       const userSnapshot = await getDocs(userQuery);
-  
+
       let userData = null;
       let resolvedRole = "volunteer";
-  
+
       if (!userSnapshot.empty) {
         userData = userSnapshot.docs[0].data();
         resolvedRole = userData.role?.toLowerCase() || "volunteer";
-  
-        // 🛑 Prevent self-scan
-        if (
-          !staffFromQR &&
-          user?.firstName === firstName &&
-          user?.lastName === lastName
-        ) {
+
+        if (!staffFromQR && user?.firstName === firstName && user?.lastName === lastName) {
           showAlert("⚠️ You cannot scan your own QR code.", "error");
           return;
         }
-  
-        // ✅ Admin login
-        if (resolvedRole === "admin") {
+
+        if (resolvedRole === "admin" && statusType === "Checked In") {
           await login({
             firstName,
             lastName,
             event: userData.event,
             role: "admin",
           });
-  
-          if (isFromQR && statusType === "Checked In") {
-            const adminQR = `${window.location.origin}/admin/qr-code?firstName=${encodeURIComponent(
-              firstName
-            )}&lastName=${encodeURIComponent(lastName)}`;
+
+          // ✅ Always log to check_ins
+          await addDoc(checkInsRef, {
+            first_name: firstName,
+            last_name: lastName,
+            status: "Checked In",
+            staff_qr: staffFromQR || staffMember,
+            timestamp,
+            isAtlTechWeek,
+            event: activeEvent,
+            role: resolvedRole,
+          });
+
+          if (isFromQR) {
+            const adminQR = `${window.location.origin}/admin/qr-code?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}`;
             setQrLink(adminQR);
             setShowQRLink(true);
             setTimeout(() => navigate("/admin/checkin"), 1000);
             return;
           }
+
+          showAlert(`✅ Admin ${firstName} ${lastName} checked in successfully!`);
+          setFirstName("");
+          setLastName("");
+          return;
         }
-  
-        // ✅ Team lead logic
+
         if (resolvedRole === "teamlead" && statusType === "Checked In") {
-          if (isFromQR) {
-            await login({
-              firstName,
-              lastName,
-              event: userData.event,
-              role: "teamlead",
-              assignedTask: userData.assignedTask || null,
-            });
-          }
-  
+          await addDoc(checkInsRef, {
+            first_name: firstName,
+            last_name: lastName,
+            status: "Checked In",
+            staff_qr: staffFromQR || staffMember,
+            timestamp,
+            isAtlTechWeek,
+            event: activeEvent,
+            role: resolvedRole,
+          });
+
           await addDoc(collection(db, "task_checkins"), {
             first_name: firstName,
             last_name: lastName,
             role: "teamlead",
             task: userData.assignedTask || "Unknown",
+            status: "Check In for Task",
             checkinTime: timestamp,
             checkoutTime: null,
-            event: userData.event,
+            event: activeEvent,
             teamLead: `${firstName} ${lastName}`,
           });
-  
+
           if (isFromQR) {
-            const teamLeadQR = `${window.location.origin}/teamlead-qr?firstName=${encodeURIComponent(
-              firstName
-            )}&lastName=${encodeURIComponent(
-              lastName
-            )}&task=${encodeURIComponent(
-              userData.assignedTask
-            )}&event=${encodeURIComponent(userData.event)}`;
+            const teamLeadQR = `${window.location.origin}/teamlead-qr?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&task=${encodeURIComponent(userData.assignedTask || "Unknown")}&event=${encodeURIComponent(activeEvent)}`;
             setQrLink(teamLeadQR);
             setShowQRLink(true);
             setTimeout(() => navigate("/teamlead-qr"), 1000);
             return;
           }
+
+          showAlert(`✅ Team Lead ${firstName} ${lastName} checked in successfully!`);
+          setFirstName("");
+          setLastName("");
+          return;
         }
       }
-  
-      // ✅ Always write to check-ins
+
+      // ✅ Default general check-in (volunteer)
       await addDoc(checkInsRef, {
         first_name: firstName,
         last_name: lastName,
@@ -208,7 +207,7 @@ const CheckInForm = () => {
         event: activeEvent,
         role: resolvedRole,
       });
-  
+
       showAlert(`✅ Volunteer ${statusType.toLowerCase()} successfully!`);
       setFirstName("");
       setLastName("");
@@ -217,7 +216,6 @@ const CheckInForm = () => {
       showAlert("❌ Something went wrong. Try again.", "error");
     }
   };
-  
 
   useEffect(() => {
     localStorage.setItem("isAtlTechWeek", JSON.stringify(isAtlTechWeek));
@@ -320,54 +318,34 @@ const CheckInForm = () => {
                   rel="noopener noreferrer"
                 >
                   privacy policy
-                </a>
-                 (required to check in)
+                </a>{" "}
+                (required to check in)
               </span>
             }
           />
 
           <Stack direction="row" spacing={2} justifyContent="center">
-            <Button
-              variant="contained"
-              onClick={() => handleCheckInOut("Checked In")}
-            >
+            <Button variant="contained" onClick={() => handleCheckInOut("Checked In")}>
               Check In
             </Button>
-            <Button
-              variant="outlined"
-              onClick={() => handleCheckInOut("Checked Out")}
-            >
+            <Button variant="outlined" onClick={() => handleCheckInOut("Checked Out")}>
               Check Out
             </Button>
           </Stack>
 
           {isAdmin && (
             <Stack direction="row" spacing={2} justifyContent="center" mt={2}>
-              <Button
-                variant="contained"
-                onClick={() => navigate("/admin/dashboard")}
-              >
+              <Button variant="contained" onClick={() => navigate("/admin/dashboard")}>
                 Go to Dashboard
               </Button>
               <Button
                 variant="outlined"
                 onClick={() => {
-                  if (
-                    user?.firstName &&
-                    user?.lastName &&
-                    user.role === "admin"
-                  ) {
-                    const qrUrl = `${
-                      window.location.origin
-                    }/admin/qr-code?firstName=${encodeURIComponent(
-                      user.firstName
-                    )}&lastName=${encodeURIComponent(user.lastName)}`;
+                  if (user?.firstName && user?.lastName && user.role === "admin") {
+                    const qrUrl = `${window.location.origin}/admin/qr-code?firstName=${encodeURIComponent(user.firstName)}&lastName=${encodeURIComponent(user.lastName)}`;
                     window.open(qrUrl, "_blank");
                   } else {
-                    showAlert(
-                      "❌ QR code unavailable. Please check in as an admin first.",
-                      "error"
-                    );
+                    showAlert("❌ QR code unavailable. Please check in as an admin first.", "error");
                   }
                 }}
               >
@@ -379,12 +357,7 @@ const CheckInForm = () => {
           {showQRLink && (
             <Box mt={3}>
               <Typography variant="subtitle1">QR Code Link:</Typography>
-              <TextField
-                value={qrLink}
-                fullWidth
-                InputProps={{ readOnly: true }}
-                sx={{ mt: 1 }}
-              />
+              <TextField value={qrLink} fullWidth InputProps={{ readOnly: true }} sx={{ mt: 1 }} />
               <Typography variant="body2" mt={1}>
                 ⏳ Link will disappear in {countdown} seconds.
               </Typography>
