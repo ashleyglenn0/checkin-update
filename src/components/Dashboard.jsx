@@ -32,6 +32,7 @@ import { useTheme, createTheme, ThemeProvider } from "@mui/material/styles";
 import SendAlertDialog from "./SendAlertDialog";
 import BrandingSlotV2 from "./BrandingSlotV2"; // Adjust path if needed
 import { useAuth } from "../context/AuthContext";
+import AlertBanner from "./AlertBanner";
 
 const renderTheme = createTheme({
   palette: {
@@ -74,7 +75,6 @@ const Dashboard = () => {
   const [checkOuts, setCheckOuts] = useState(0);
   const [noShows, setNoShows] = useState(0);
   const [scheduledCount, setScheduledCount] = useState(0);
-  const [alerts, setAlerts] = useState([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [slackMessages, setSlackMessages] = useState([]);
   const [trafficLevels, setTrafficLevels] = useState([]);
@@ -84,6 +84,10 @@ const Dashboard = () => {
     message: "",
     severity: "info",
     audience: "admin-all",
+  });
+  const [lastActivity, setLastActivity] = useState(() => {
+    const stored = localStorage.getItem("lastActivity");
+    return stored ? new Date(stored) : new Date();
   });
 
   const { user, logout } = useAuth();
@@ -104,16 +108,29 @@ const Dashboard = () => {
         createdAt: serverTimestamp(),
         event: activeEvent,
       };
-      const docRef = await addDoc(collection(db, "alerts"), alertDoc);
-      const addedDoc = await getDoc(docRef);
-      setAlerts((prev) => [...prev, { id: docRef.id, ...addedDoc.data() }]);
+
+      if (
+        newAlert.audience === "teamlead-direct" &&
+        (!newAlert.taskGroup || newAlert.taskGroup.length === 0)
+      ) {
+        alert(
+          "Please select at least one task group for direct team lead alerts."
+        );
+        return;
+      }
+
+      if (newAlert.audience !== "teamlead-direct") {
+        delete alertDoc.taskGroup;
+      }
+
+      await addDoc(collection(db, "alerts"), alertDoc);
       setOpenDialog(false);
 
       if (
         newAlert.audience?.startsWith("admin") &&
         newAlert.severity === "error"
       ) {
-        const res = await fetch(
+        await fetch(
           "https://us-central1-volunteercheckin-3659e.cloudfunctions.net/sendSlackAlert",
           {
             method: "POST",
@@ -121,7 +138,6 @@ const Dashboard = () => {
             body: JSON.stringify({ text: newAlert.message }),
           }
         );
-        await res.text();
       }
     } catch (error) {
       console.error("❌ handleAddAlert error:", error);
@@ -216,22 +232,6 @@ const Dashboard = () => {
       }
     };
 
-    const fetchAlerts = async () => {
-      try {
-        const q = query(
-          collection(db, "alerts"),
-          where("event", "==", activeEvent)
-        );
-        const snap = await getDocs(q);
-        const fetchedAlerts = snap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setAlerts(fetchedAlerts);
-      } catch (error) {
-        console.error("Failed to fetch alerts:", error);
-      }
-    };
     const fetchEventStats = async () => {
       const today = new Date();
       const startOfDay = new Date(
@@ -341,13 +341,29 @@ const Dashboard = () => {
     );
 
     fetchSlackMessages();
-    fetchAlerts();
     fetchStats();
     fetchLongTaskVolunteers();
     fetchEventStats();
 
     return () => unsubscribe();
   }, [isAtlTechWeek]);
+
+  useEffect(() => {
+    const updateActivity = () => {
+      const now = new Date();
+      setLastActivity(now);
+      localStorage.setItem("lastActivity", now.toISOString());
+    };
+
+    const events = ["click", "keydown", "mousemove", "touchstart"];
+    events.forEach((event) => window.addEventListener(event, updateActivity));
+
+    return () => {
+      events.forEach((event) =>
+        window.removeEventListener(event, updateActivity)
+      );
+    };
+  }, []);
 
   const currentTheme = isAtlTechWeek ? atlTheme : renderTheme;
   const coverageRate =
@@ -442,6 +458,21 @@ const Dashboard = () => {
             Log Out
           </Button>
         </Stack>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1, mr: 1 }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: theme.palette.text.secondary,
+              fontStyle: "italic",
+            }}
+          >
+            Logged in as {user?.firstName} | Last active:{" "}
+            {lastActivity?.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </Typography>
+        </Box>
       </Box>
 
       <Box sx={{ p: isMobile ? 2 : 4 }}>
@@ -534,7 +565,7 @@ const Dashboard = () => {
 
         {/* Long Task Volunteers */}
         <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6">Overdue Volunteers</Typography>
+          <Typography variant="h6">Volunteers to Rotate</Typography>
           {longTaskVolunteers.length === 0 ? (
             <Typography variant="body2">
               No one is currently over their task time.
@@ -576,27 +607,11 @@ const Dashboard = () => {
         {/* Alerts Section */}
         <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
           <Typography variant="h6">Recent Alerts</Typography>
-          {alerts.length === 0 ? (
-            <Typography variant="body2">No recent alerts.</Typography>
-          ) : (
-            alerts.map((alert) => (
-              <Alert
-                key={alert.id}
-                severity={alert.severity}
-                onClose={async () => {
-                  try {
-                    await deleteDoc(doc(db, "alerts", alert.id));
-                    setAlerts((prev) => prev.filter((a) => a.id !== alert.id));
-                  } catch (err) {
-                    console.error("Failed to delete alert:", err);
-                  }
-                }}
-                sx={{ mb: 1 }}
-              >
-                {alert.message}
-              </Alert>
-            ))
-          )}
+          <AlertBanner
+            role={user?.role || ""}
+            event={user.event || (isAtlTechWeek ? "ATL Tech Week" : "Render")}
+            userName={user.firstName}
+          />
         </Paper>
       </Box>
 

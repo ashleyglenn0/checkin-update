@@ -1,12 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  getFirestore,
-  collection,
-  query,
-  where,
-  getDocs,
-} from "firebase/firestore";
+import { getFirestore, collection, query, where, getDocs } from "firebase/firestore";
 import { QRCodeCanvas } from "qrcode.react";
 import {
   Box,
@@ -21,6 +15,7 @@ import PageLayout from "../components/PageLayout";
 import { useAuth } from "../context/AuthContext";
 import PinkPeachIcon from "../assets/PinkPeachIcon.png";
 import ATWLogo from "../assets/ATWLogo.jpg";
+import AlertBanner from "../components/AlertBanner";
 
 const renderTheme = createTheme({
   palette: {
@@ -38,16 +33,9 @@ const atlTheme = createTheme({
       default: "#f5f5f5",
       paper: "#ffffff",
     },
-    primary: {
-      main: "#ffb89e",
-    },
-    text: {
-      primary: "#4f2b91",
-      secondary: "#2b2b36",
-    },
-    secondary: {
-      main: "#68dcaf",
-    },
+    primary: { main: "#ffb89e" },
+    text: { primary: "#4f2b91", secondary: "#2b2b36" },
+    secondary: { main: "#68dcaf" },
   },
 });
 
@@ -60,7 +48,6 @@ const TeamLeadQRPage = () => {
   const [task, setTask] = useState("");
   const [event, setEvent] = useState("");
   const [showQR, setShowQR] = useState(false);
-  const [teamLeadAlerts, setTeamLeadAlerts] = useState([]);
   const [overdueReturns, setOverdueReturns] = useState([]);
   const [coveragePercentage, setCoveragePercentage] = useState(null);
 
@@ -81,27 +68,7 @@ const TeamLeadQRPage = () => {
   useEffect(() => {
     if (!user || !user.firstName || !user.lastName || !task || !event) return;
 
-    const fetchAlertsAndStats = async () => {
-      const alertsRef = collection(db, "alerts");
-      const q = query(alertsRef, where("event", "==", event));
-      const snapshot = await getDocs(q);
-
-      const localKey = `dismissedTeamLeadAlerts_${user.firstName}_${user.lastName}`;
-      const dismissed = JSON.parse(localStorage.getItem(localKey) || "[]");
-
-      const filtered = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter(
-          (alert) =>
-            !dismissed.includes(alert.id) &&
-            ["everyone", "teamlead-all", "teamlead-direct"].includes(
-              alert.audience
-            ) &&
-            (alert.audience !== "teamlead-direct" || alert.task === task)
-        );
-
-      setTeamLeadAlerts(filtered);
-
+    const fetchStats = async () => {
       const checkinsRef = collection(db, "task_checkins");
       const checkinQ = query(
         checkinsRef,
@@ -157,17 +124,10 @@ const TeamLeadQRPage = () => {
       setOverdueReturns(overdueList);
     };
 
-    fetchAlertsAndStats();
-    const interval = setInterval(fetchAlertsAndStats, 60000);
+    fetchStats();
+    const interval = setInterval(fetchStats, 60000);
     return () => clearInterval(interval);
   }, [db, task, event, user]);
-
-  const handleDismissAlert = (id) => {
-    const localKey = `dismissedTeamLeadAlerts_${user.firstName}_${user.lastName}`;
-    const dismissed = JSON.parse(localStorage.getItem(localKey) || "[]");
-    localStorage.setItem(localKey, JSON.stringify([...dismissed, id]));
-    setTeamLeadAlerts((prev) => prev.filter((a) => a.id !== id));
-  };
 
   const theme = event === "ATL Tech Week" ? atlTheme : renderTheme;
   const appUrl = window.location.origin + "/task-check-in";
@@ -213,7 +173,7 @@ const TeamLeadQRPage = () => {
 
           {overdueReturns.length > 0 && (
             <Alert severity="info" sx={{ mt: 2 }}>
-              ⚠️ Volunteers overdue from break:
+              ⏳ Volunteers overdue from break:
               <ul>
                 {overdueReturns.map((v, i) => (
                   <li key={i}>
@@ -224,16 +184,11 @@ const TeamLeadQRPage = () => {
             </Alert>
           )}
 
-          {teamLeadAlerts.map((alert) => (
-            <Alert
-              key={alert.id}
-              severity={alert.severity || "info"}
-              onClose={() => handleDismissAlert(alert.id)}
-              sx={{ mt: 2 }}
-            >
-              {alert.message}
-            </Alert>
-          ))}
+          <AlertBanner
+            role="teamlead"
+            event={event}
+            userName={user.firstName}
+          />
         </Box>
 
         {!showQR ? (
